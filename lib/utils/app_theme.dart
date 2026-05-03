@@ -51,7 +51,7 @@ class AppTheme {
           ),
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: cardBg,
         elevation: 3,
         shadowColor: warmBrown.withOpacity(0.2),

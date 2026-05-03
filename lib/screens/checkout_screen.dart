@@ -24,8 +24,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   DeliveryMethod _deliveryMethod = DeliveryMethod.pickup;
 
   // ← Put your WhatsApp number and Instapay number here
-  static const String _whatsappNumber = '201XXXXXXXXX';
-  static const String _instapayNumber = '01XXXXXXXXX';
+  static const String _whatsappNumber = '201128312692';
+  static const String _instapayNumber = '201128312692';
 
   @override
   void dispose() {
