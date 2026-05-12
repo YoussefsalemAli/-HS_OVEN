@@ -1,76 +1,151 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <base href="$FLUTTER_BASE_HREF">
-  <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="H Oven - سينابون وكوكيز أرتيزان طازج يومياً">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- iOS meta tags & icons -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="H Oven">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
-  <title>H Oven 🔥</title>
-  <link rel="manifest" href="manifest.json">
-  <style>
-    body {
-      background-color: #FAF3E0;
-      margin: 0;
-      padding: 0;
-      font-family: 'Cairo', sans-serif;
-    }
-    #loading {
-      position: fixed;
-      inset: 0;
-      background: #FAF3E0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
-      transition: opacity 0.5s ease;
-    }
-    #loading .logo {
-      font-size: 64px;
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-    #loading .brand {
-      font-size: 28px;
-      font-weight: bold;
-      color: #6B3A2A;
-      letter-spacing: 6px;
-      margin-top: 12px;
-    }
-    #loading .tagline {
-      font-size: 14px;
-      color: #B8733A;
-      margin-top: 6px;
-    }
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.1); }
-    }
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
-  </style>
-</head>
-<body>
-  <div id="loading">
-    <div class="logo">🔥</div>
-    <div class="brand">H OVEN</div>
-    <div class="tagline">سينابون وكوكيز أرتيزان</div>
-  </div>
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import 'providers/app_provider.dart';
+import 'screens/home_screen.dart';
+import 'screens/cart_screen.dart';
+import 'screens/checkout_screen.dart';
+import 'screens/admin_screen.dart';
+import 'theme.dart';
+import 'widgets/common.dart';
 
-  <script>
-    window.addEventListener('flutter-first-frame', function() {
-      const loading = document.getElementById('loading');
-      loading.style.opacity = '0';
-      setTimeout(() => loading.remove(), 500);
-    });
-  </script>
+void main() {
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => AppProvider(),
+      child: const HOvenApp(),
+    ),
+  );
+}
 
-  <script src="flutter_bootstrap.js" async></script>
-</body>
-</html>
+class HOvenApp extends StatelessWidget {
+  const HOvenApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'H Oven',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.theme,
+      home: const AppShell(),
+    );
+  }
+}
+
+// ─── App Shell with Navbar ────────────────────────────────────────────────────
+class AppShell extends StatefulWidget {
+  const AppShell({super.key});
+
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  int _page = 0; // 0=home 1=cart 2=checkout 3=admin
+
+  void _go(int page) => setState(() => _page = page);
+
+  @override
+  Widget build(BuildContext context) {
+    final cart = context.watch<AppProvider>().cartItemCount;
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFFFF8F0),
+        elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(color: const Color(0xFFE8D5C0), height: 1),
+        ),
+        title: InkWell(
+          onTap: () => _go(0),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Text('🍪', style: TextStyle(fontSize: 26)),
+            const SizedBox(width: 8),
+            Text('H Oven', style: GoogleFonts.playfairDisplay(fontSize: 22, color: const Color(0xFF6B2D0E), fontWeight: FontWeight.w700)),
+          ]),
+        ),
+        actions: [
+          _NavBtn(label: 'Menu',    active: _page == 0, onTap: () => _go(0)),
+          _NavCartBtn(
+            label: 'Cart',
+            count: cart,
+            active: _page == 1,
+            onTap: () => _go(1),
+          ),
+          _NavBtn(label: 'Admin',   active: _page == 3, onTap: () => _go(3)),
+          const SizedBox(width: 16),
+        ],
+      ),
+      body: IndexedStack(
+        index: _page,
+        children: [
+          const HomeScreen(),
+          CartScreen(onCheckout: () => _go(2)),
+          CheckoutScreen(onOrderPlaced: () => _go(0)),
+          const AdminScreen(),
+        ],
+      ),
+    );
+  }
+}
+
+class _NavBtn extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _NavBtn({required this.label, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: onTap,
+      child: Text(
+        label.toUpperCase(),
+        style: GoogleFonts.lato(
+          fontSize: 12,
+          letterSpacing: 2,
+          fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+          color: const Color(0xFF6B2D0E),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavCartBtn extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool active;
+  final VoidCallback onTap;
+  const _NavCartBtn({required this.label, required this.count, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(clipBehavior: Clip.none, children: [
+      TextButton(
+        onPressed: onTap,
+        child: Text(
+          label.toUpperCase(),
+          style: GoogleFonts.lato(
+            fontSize: 12,
+            letterSpacing: 2,
+            fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+            color: const Color(0xFF6B2D0E),
+          ),
+        ),
+      ),
+      if (count > 0)
+        Positioned(
+          top: 6,
+          right: 2,
+          child: Container(
+            width: 18,
+            height: 18,
+            decoration: const BoxDecoration(color: Color(0xFF6B2D0E), shape: BoxShape.circle),
+            child: Center(child: Text('$count', style: GoogleFonts.lato(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700))),
+          ),
+        ),
+    ]);
+  }
+}

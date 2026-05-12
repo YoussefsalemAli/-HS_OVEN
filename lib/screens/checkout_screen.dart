@@ -1,395 +1,342 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:uuid/uuid.dart';
-import '../providers/cart_provider.dart';
-import '../providers/products_provider.dart';
-import '../models/order.dart';
-import '../utils/app_theme.dart';
+import '../providers/app_provider.dart';
+import '../models/menu_item.dart';
+import '../theme.dart';
+import '../widgets/common.dart';
 
 class CheckoutScreen extends StatefulWidget {
-  const CheckoutScreen({super.key});
+  final VoidCallback onOrderPlaced;
+  const CheckoutScreen({super.key, required this.onOrderPlaced});
 
   @override
   State<CheckoutScreen> createState() => _CheckoutScreenState();
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _addressController = TextEditingController();
-
-  PaymentMethod _paymentMethod = PaymentMethod.cash;
-  DeliveryMethod _deliveryMethod = DeliveryMethod.pickup;
-
-  // ← Put your WhatsApp number and Instapay number here
-  static const String _whatsappNumber = '201128312692';
-  static const String _instapayNumber = '201128312692';
+  final _nameCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  final _addressCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
+  final _voucherCtrl = TextEditingController();
+  String _payment = 'cash';
+  bool _loading = false;
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _phoneController.dispose();
-    _addressController.dispose();
-    super.dispose(); 
+    _nameCtrl.dispose();
+    _phoneCtrl.dispose();
+    _addressCtrl.dispose();
+    _notesCtrl.dispose();
+    _voucherCtrl.dispose();
+    super.dispose();
   }
 
-  double get deliveryFee =>
-      _deliveryMethod == DeliveryMethod.delivery
-          ? context.read<ProductsProvider>().deliveryFee
-          : 0;
+  void _applyVoucher(AppProvider p) {
+    final err = p.applyVoucher(_voucherCtrl.text);
+    if (err == null) {
+      showAppToast(context, 'Voucher applied!');
+    } else {
+      showAppToast(context, err, isError: true);
+    }
+  }
 
-  Future<void> _placeOrder(BuildContext context) async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_deliveryMethod == DeliveryMethod.delivery && _addressController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('الرجاء إدخال عنوان التوصيل', style: TextStyle(fontFamily: 'Cairo')),
-          backgroundColor: Colors.red,
-        ),
-      );
+  int _discount(int subtotal, Voucher? voucher) {
+    if (voucher == null) return 0;
+    if (voucher.type == 'percent') {
+      return (subtotal * voucher.discount / 100).round();
+    }
+    return voucher.discount.toInt().clamp(0, subtotal);
+  }
+
+  Future<void> _placeOrder(AppProvider p) async {
+    if (_nameCtrl.text.trim().isEmpty ||
+        _phoneCtrl.text.trim().isEmpty ||
+        _addressCtrl.text.trim().isEmpty) {
+      showAppToast(context, 'Please fill in all required fields',
+          isError: true);
       return;
     }
 
-    final cart = context.read<CartProvider>();
-    final subtotal = cart.subtotal;
-    final discount = cart.discountAmount;
-    final total = subtotal - discount + deliveryFee;
+    setState(() => _loading = true);
 
-    final order = Order(
-      id: const Uuid().v4().substring(0, 8).toUpperCase(),
-      items: cart.items,
-      customerName: _nameController.text.trim(),
-      customerPhone: _phoneController.text.trim(),
-      customerAddress: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
-      paymentMethod: _paymentMethod,
-      deliveryMethod: _deliveryMethod,
-      deliveryFee: deliveryFee,
-      discount: discount,
-      discountCode: cart.appliedDiscount?.code,
-      subtotal: subtotal,
+    final cartItems = p.cartItems;
+    if (cartItems.isEmpty) {
+      showAppToast(context, 'Your cart is empty', isError: true);
+      setState(() => _loading = false);
+      return;
+    }
+
+    final subtotal = p.cartSubtotal.toInt();
+    final discount = _discount(subtotal, p.appliedVoucher);
+    final total = subtotal - discount;
+
+    final itemLines = cartItems.map((i) {
+      final qty = p.cartQty(i.id);
+      return '• ${i.name} (${i.weight}) x$qty = ${i.price * qty} EGP';
+    }).join('\n');
+
+    final paymentLabel = _payment == 'cash' ? 'Cash on Delivery' : 'InstaPay';
+
+    final lines = [
+      '🍪 *New Order — H Oven*',
+      '',
+      '*Name:* ${_nameCtrl.text.trim()}',
+      '*Phone:* ${_phoneCtrl.text.trim()}',
+      '*Address:* ${_addressCtrl.text.trim()}',
+      if (_notesCtrl.text.trim().isNotEmpty)
+        '*Notes:* ${_notesCtrl.text.trim()}',
+      '',
+      '*Order:*',
+      itemLines,
+      '',
+      if (p.appliedVoucher != null)
+        '*Voucher:* ${p.appliedVoucher!.code} (−$discount EGP)',
+      '*Total:* $total EGP',
+      '*Payment:* $paymentLabel',
+    ];
+
+    final message = lines.join('\n');
+    final url = Uri.parse(
+        'https://wa.me/201128312692?text=${Uri.encodeComponent(message)}');
+
+    // Record order
+    final cost =
+        cartItems.fold<int>(0, (s, i) => s + i.costPrice * p.cartQty(i.id));
+    p.addOrder(OrderRecord(
+      id: p.nextOrderId,
+      name: _nameCtrl.text.trim(),
       total: total,
-      createdAt: DateTime.now(),
-    );
+      cost: cost,
+      items: cartItems.map((i) => '${i.name} x${p.cartQty(i.id)}').toList(),
+      date: DateTime.now().toIso8601String().substring(0, 10),
+      payment: paymentLabel,
+    ));
 
-    if (_paymentMethod == PaymentMethod.instapay) {
-      // Show Instapay instructions
-      await showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Row(
-            children: [
-              Text('💳', style: TextStyle(fontSize: 28)),
-              SizedBox(width: 8),
-              Text('الدفع بإنستاباي', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('يرجى تحويل المبلغ على:', style: TextStyle(fontFamily: 'Cairo')),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.cream,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
+    p.clearCart();
+    p.clearVoucher();
+
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    }
+
+    setState(() => _loading = false);
+    if (mounted) showAppToast(context, 'Order sent via WhatsApp! 🎉');
+    widget.onOrderPlaced();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.watch<AppProvider>();
+    final cartItems = p.cartItems;
+    final subtotal = p.cartSubtotal.toInt();
+    final discount = _discount(subtotal, p.appliedVoucher);
+    final total = subtotal - discount;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Checkout',
+                style: GoogleFonts.playfairDisplay(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.brown)),
+            const SizedBox(height: 28),
+
+            // Customer Info
+            Card(
+                child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.phone, color: AppTheme.warmBrown),
-                    const SizedBox(width: 8),
-                    Text(
-                      _instapayNumber,
-                      style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                        color: AppTheme.darkBrown,
+                    Text('DELIVERY DETAILS',
+                        style: GoogleFonts.lato(
+                            fontSize: 11,
+                            color: AppColors.lightBrown,
+                            letterSpacing: 1.5,
+                            fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 16),
+                    AdminField(
+                        label: 'Full Name *',
+                        controller: _nameCtrl,
+                        hint: 'Your name'),
+                    const SizedBox(height: 14),
+                    Row(children: [
+                      Expanded(
+                          child: AdminField(
+                              label: 'Phone *',
+                              controller: _phoneCtrl,
+                              hint: '01xxxxxxxxx',
+                              keyboardType: TextInputType.phone)),
+                      const SizedBox(width: 14),
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text('PAYMENT *',
+                                style: GoogleFonts.lato(
+                                    fontSize: 11,
+                                    color: AppColors.lightBrown,
+                                    letterSpacing: 1.5,
+                                    fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 6),
+                            DropdownButtonFormField<String>(
+                              value: _payment,
+                              decoration: const InputDecoration(),
+                              items: const [
+                                DropdownMenuItem(
+                                    value: 'cash',
+                                    child: Text('Cash on Delivery')),
+                                DropdownMenuItem(
+                                    value: 'instapay', child: Text('InstaPay')),
+                              ],
+                              onChanged: (v) => setState(() => _payment = v!),
+                            ),
+                          ])),
+                    ]),
+                    const SizedBox(height: 14),
+                    AdminField(
+                        label: 'Address *',
+                        controller: _addressCtrl,
+                        hint: 'Full delivery address in Cairo'),
+                    const SizedBox(height: 14),
+                    AdminField(
+                        label: 'Notes',
+                        controller: _notesCtrl,
+                        hint: 'Any special requests...'),
+                  ]),
+            )),
+            const SizedBox(height: 16),
+
+            // Voucher
+            Card(
+                child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('VOUCHER',
+                        style: GoogleFonts.lato(
+                            fontSize: 11,
+                            color: AppColors.lightBrown,
+                            letterSpacing: 1.5,
+                            fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 10),
+                    Row(children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _voucherCtrl,
+                          decoration:
+                              const InputDecoration(hintText: 'Enter code...'),
+                          textCapitalization: TextCapitalization.characters,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton(
+                          onPressed: () => _applyVoucher(p),
+                          child: const Text('Apply')),
+                    ]),
+                    if (p.appliedVoucher != null) ...[
+                      const SizedBox(height: 8),
+                      Text('✓ ${p.appliedVoucher!.code} applied',
+                          style: GoogleFonts.lato(
+                              fontSize: 13,
+                              color: AppColors.green,
+                              fontWeight: FontWeight.w700)),
+                    ],
+                  ]),
+            )),
+            const SizedBox(height: 16),
+
+            // Order Summary
+            Card(
+                child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('ORDER SUMMARY',
+                        style: GoogleFonts.lato(
+                            fontSize: 11,
+                            color: AppColors.lightBrown,
+                            letterSpacing: 1.5,
+                            fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 14),
+                    ...cartItems.map((i) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('${i.emoji} ${i.name} x${p.cartQty(i.id)}',
+                                    style: GoogleFonts.lato(
+                                        fontSize: 14,
+                                        color: AppColors.darkBrown)),
+                                Text('${i.price * p.cartQty(i.id)} EGP',
+                                    style: GoogleFonts.lato(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700)),
+                              ]),
+                        )),
+                    const Divider(color: AppColors.border, height: 24),
+                    if (discount > 0)
+                      _Row(
+                          label: 'Discount',
+                          value: '−$discount EGP',
+                          color: AppColors.green),
+                    Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Total',
+                              style: GoogleFonts.playfairDisplay(
+                                  fontSize: 20, color: AppColors.darkBrown)),
+                          Text('$total EGP',
+                              style: GoogleFonts.playfairDisplay(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.brown)),
+                        ]),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF25D366),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                        onPressed: _loading ? null : () => _placeOrder(p),
+                        child: _loading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                    color: Colors.white, strokeWidth: 2))
+                            : Text('📲 Send Order via WhatsApp',
+                                style: GoogleFonts.lato(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 15,
+                                    letterSpacing: 0.5)),
                       ),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'المبلغ: ${total.toStringAsFixed(0)} جنيه',
-                style: const TextStyle(
-                  fontFamily: 'Cairo',
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: AppTheme.warmBrown,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'بعد التحويل، أرسل الطلب على واتساب وسيتم التأكيد.',
-                style: TextStyle(fontFamily: 'Cairo', color: AppTheme.textMid, fontSize: 13),
-              ),
-            ],
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('حسناً، سأكمل الطلب', style: TextStyle(fontFamily: 'Cairo')),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Send to WhatsApp
-    final message = order.toWhatsAppMessage();
-    final encoded = Uri.encodeComponent(message);
-    final url = 'https://wa.me/$_whatsappNumber?text=$encoded';
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-      cart.clear();
-      if (context.mounted) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم إرسال الطلب! 🎉 سنتواصل معك قريباً', style: TextStyle(fontFamily: 'Cairo')),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 4),
-          ),
-        );
-      }
-    } else {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تعذّر فتح واتساب. تأكد من تثبيته.', style: TextStyle(fontFamily: 'Cairo')),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cart = context.watch<CartProvider>();
-    final products = context.watch<ProductsProvider>();
-    final subtotal = cart.subtotal;
-    final discount = cart.discountAmount;
-    final total = subtotal - discount + deliveryFee;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('إتمام الطلب', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
-        backgroundColor: AppTheme.warmBrown,
-        foregroundColor: Colors.white,
-      ),
-      backgroundColor: AppTheme.lightCream,
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _SectionTitle(icon: Icons.person, title: 'بياناتك'),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'الاسم الكامل', prefixIcon: Icon(Icons.person_outline)),
-                style: const TextStyle(fontFamily: 'Cairo'),
-                validator: (v) => v == null || v.isEmpty ? 'الرجاء إدخال الاسم' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _phoneController,
-                decoration: const InputDecoration(labelText: 'رقم التليفون', prefixIcon: Icon(Icons.phone_outlined)),
-                style: const TextStyle(fontFamily: 'Cairo'),
-                keyboardType: TextInputType.phone,
-                validator: (v) => v == null || v.length < 10 ? 'رقم تليفون غير صحيح' : null,
-              ),
-
-              const SizedBox(height: 24),
-              _SectionTitle(icon: Icons.delivery_dining, title: 'طريقة الاستلام'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _OptionTile(
-                      title: 'استلام من المحل',
-                      subtitle: 'مجاناً',
-                      icon: Icons.storefront,
-                      selected: _deliveryMethod == DeliveryMethod.pickup,
-                      onTap: () => setState(() => _deliveryMethod = DeliveryMethod.pickup),
+                    const SizedBox(height: 10),
+                    Center(
+                      child: Text(
+                        "You'll be redirected to WhatsApp to confirm your order",
+                        style: GoogleFonts.lato(
+                            fontSize: 12, color: AppColors.lightBrown),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _OptionTile(
-                      title: 'توصيل',
-                      subtitle: '+${products.deliveryFee.toStringAsFixed(0)} جنيه',
-                      icon: Icons.delivery_dining,
-                      selected: _deliveryMethod == DeliveryMethod.delivery,
-                      onTap: () => setState(() => _deliveryMethod = DeliveryMethod.delivery),
-                    ),
-                  ),
-                ],
-              ),
-              if (_deliveryMethod == DeliveryMethod.delivery) ...[
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _addressController,
-                  decoration: const InputDecoration(
-                    labelText: 'العنوان بالتفصيل',
-                    prefixIcon: Icon(Icons.location_on_outlined),
-                    hintText: 'الشارع، المنطقة، المدينة',
-                  ),
-                  style: const TextStyle(fontFamily: 'Cairo'),
-                  maxLines: 2,
-                ),
-              ],
-
-              const SizedBox(height: 24),
-              _SectionTitle(icon: Icons.payment, title: 'طريقة الدفع'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _OptionTile(
-                      title: 'كاش',
-                      subtitle: 'عند الاستلام',
-                      icon: Icons.money,
-                      selected: _paymentMethod == PaymentMethod.cash,
-                      onTap: () => setState(() => _paymentMethod = PaymentMethod.cash),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _OptionTile(
-                      title: 'إنستاباي',
-                      subtitle: 'تحويل أونلاين',
-                      icon: Icons.account_balance_wallet,
-                      selected: _paymentMethod == PaymentMethod.instapay,
-                      onTap: () => setState(() => _paymentMethod = PaymentMethod.instapay),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-              _SectionTitle(icon: Icons.receipt_long, title: 'ملخص الطلب'),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppTheme.cardBg,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.border.withOpacity(0.5)),
-                ),
-                child: Column(
-                  children: [
-                    _Row('المجموع', '${subtotal.toStringAsFixed(0)} جنيه'),
-                    if (discount > 0) _Row('خصم', '-${discount.toStringAsFixed(0)} جنيه', color: Colors.green),
-                    if (_deliveryMethod == DeliveryMethod.delivery)
-                      _Row('التوصيل', '+${deliveryFee.toStringAsFixed(0)} جنيه', color: AppTheme.caramel),
-                    const Divider(height: 20),
-                    _Row('الإجمالي', '${total.toStringAsFixed(0)} جنيه', bold: true, big: true),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => _placeOrder(context),
-                  icon: const Text('💬', style: TextStyle(fontSize: 20)),
-                  label: const Text(
-                    'إرسال الطلب عبر واتساب',
-                    style: TextStyle(fontFamily: 'Cairo', fontSize: 17, fontWeight: FontWeight.bold),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: const Color(0xFF25D366),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Center(
-                child: Text(
-                  'سيتم إرسال الطلب لواتساب وسنتواصل معك للتأكيد',
-                  style: TextStyle(fontFamily: 'Cairo', color: AppTheme.textMid, fontSize: 12),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              const SizedBox(height: 24),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  const _SectionTitle({required this.icon, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, color: AppTheme.caramel, size: 20),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            fontFamily: 'Cairo',
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-            color: AppTheme.darkBrown,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _OptionTile extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-  const _OptionTile({required this.title, required this.subtitle, required this.icon, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: selected ? AppTheme.warmBrown : AppTheme.cardBg,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? AppTheme.warmBrown : AppTheme.border,
-            width: selected ? 2 : 1,
-          ),
-          boxShadow: selected
-              ? [BoxShadow(color: AppTheme.warmBrown.withOpacity(0.25), blurRadius: 8, offset: const Offset(0, 3))]
-              : [],
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: selected ? AppTheme.gold : AppTheme.caramel, size: 28),
-            const SizedBox(height: 6),
-            Text(title, style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, color: selected ? Colors.white : AppTheme.darkBrown, fontSize: 14)),
-            Text(subtitle, style: TextStyle(fontFamily: 'Cairo', fontSize: 12, color: selected ? AppTheme.cream : AppTheme.textMid)),
-          ],
+                  ]),
+            )),
+          ]),
         ),
       ),
     );
@@ -397,24 +344,24 @@ class _OptionTile extends StatelessWidget {
 }
 
 class _Row extends StatelessWidget {
-  final String label;
-  final String value;
-  final bool bold;
-  final bool big;
+  final String label, value;
   final Color? color;
-  const _Row(this.label, this.value, {this.bold = false, this.big = false, this.color});
+  const _Row({required this.label, required this.value, this.color});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(fontFamily: 'Cairo', fontWeight: bold ? FontWeight.bold : FontWeight.normal, fontSize: big ? 17 : 14)),
-          Text(value, style: TextStyle(fontFamily: 'Cairo', fontWeight: bold ? FontWeight.bold : FontWeight.w600, fontSize: big ? 17 : 14, color: color ?? AppTheme.warmBrown)),
-        ],
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(label,
+            style: GoogleFonts.lato(
+                fontSize: 14, color: color ?? AppColors.lightBrown)),
+        Text(value,
+            style: GoogleFonts.lato(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: color ?? AppColors.darkBrown)),
+      ]),
     );
   }
 }

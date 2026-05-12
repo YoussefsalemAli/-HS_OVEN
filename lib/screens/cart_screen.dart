@@ -1,393 +1,330 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import '../providers/cart_provider.dart';
-import '../providers/products_provider.dart';
-import '../utils/app_theme.dart';
-import 'checkout_screen.dart';
+import '../providers/app_provider.dart';
 
 class CartScreen extends StatefulWidget {
-  const CartScreen({super.key});
-
+  final VoidCallback onCheckout;
+  const CartScreen({super.key, required this.onCheckout});
   @override
   State<CartScreen> createState() => _CartScreenState();
 }
 
 class _CartScreenState extends State<CartScreen> {
-  final _discountController = TextEditingController();
-  String? _discountError;
-  String? _discountSuccess;
+  final _voucherCtrl = TextEditingController();
+  String? _voucherError;
 
   @override
   void dispose() {
-    _discountController.dispose();
+    _voucherCtrl.dispose();
     super.dispose();
-  }
-
-  void _applyDiscount(BuildContext context) {
-    final code = _discountController.text.trim();
-    if (code.isEmpty) return;
-    final productsProvider = context.read<ProductsProvider>();
-    final cartProvider = context.read<CartProvider>();
-    final discount = productsProvider.validateCode(code);
-    if (discount != null) {
-      cartProvider.applyDiscount(discount);
-      setState(() {
-        _discountError = null;
-        _discountSuccess = 'تم تطبيق خصم ${discount.percentage.toStringAsFixed(0)}%! 🎉';
-      });
-    } else {
-      setState(() {
-        _discountSuccess = null;
-        _discountError = 'كود الخصم غير صحيح أو منتهي الصلاحية';
-      });
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final cart = context.watch<CartProvider>();
-    final products = context.watch<ProductsProvider>();
+    final provider = context.watch<AppProvider>();
+    final items = provider.cartItems;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('سلة التسوق', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
-        backgroundColor: AppTheme.warmBrown,
-        foregroundColor: Colors.white,
-        actions: [
-          if (cart.items.isNotEmpty)
-            TextButton(
-              onPressed: () => cart.clear(),
-              child: const Text('مسح الكل', style: TextStyle(color: AppTheme.gold, fontFamily: 'Cairo')),
-            ),
-        ],
-      ),
-      backgroundColor: AppTheme.lightCream,
-      body: cart.items.isEmpty
-          ? _EmptyCart()
-          : Column(
-              children: [
-                Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      // Cart items
-                      ...cart.items.map((item) => Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: AppTheme.cardBg,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppTheme.border.withOpacity(0.5)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.warmBrown.withOpacity(0.08),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Text(item.product.emoji, style: const TextStyle(fontSize: 40)),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item.product.name,
-                                    style: const TextStyle(
-                                      fontFamily: 'Cairo',
-                                      fontWeight: FontWeight.bold,
-                                      color: AppTheme.darkBrown,
-                                      fontSize: 15,
-                                    ),
-                                  ),
-                                  Text(
-                                    item.size.label,
-                                    style: const TextStyle(
-                                      fontFamily: 'Cairo',
-                                      color: AppTheme.textMid,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                  Text(
-                                    '${item.size.price.toStringAsFixed(0)} جنيه × ${item.quantity}',
-                                    style: const TextStyle(
-                                      fontFamily: 'Cairo',
-                                      color: AppTheme.caramel,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
+    if (items.isEmpty) {
+      return Center(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const Text('🛒', style: TextStyle(fontSize: 64)),
+          const SizedBox(height: 20),
+          Text('Your cart is empty',
+              style: GoogleFonts.playfairDisplay(
+                  fontSize: 28, color: Color(0xFF6B2D0E))),
+          const SizedBox(height: 12),
+          Text('Looks like you haven\'t added anything yet.',
+              style: GoogleFonts.lato(color: Color(0xFF8B5E3C))),
+        ]),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 680),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Your Cart',
+                  style: GoogleFonts.playfairDisplay(
+                      fontSize: 32,
+                      color: Color(0xFF6B2D0E),
+                      fontWeight: FontWeight.w700)),
+              const SizedBox(height: 24),
+              // Items
+              Container(
+                decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE8D5C0))),
+                child: Column(
+                  children: items.asMap().entries.map((entry) {
+                    final i = entry.key;
+                    final item = entry.value;
+                    return Column(
+                      children: [
+                        if (i > 0)
+                          const Divider(color: Color(0xFFE8D5C0), height: 1),
+                        Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Row(
+                            children: [
+                              Text(item.emoji,
+                                  style: const TextStyle(fontSize: 36)),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(item.name,
+                                        style: GoogleFonts.playfairDisplay(
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF2C1810))),
+                                    Text(
+                                        '${item.weight} · ${item.price.toInt()} EGP each',
+                                        style: GoogleFonts.lato(
+                                            fontSize: 13,
+                                            color: Color(0xFF8B5E3C))),
+                                  ],
+                                ),
                               ),
-                            ),
-                            Column(
-                              children: [
-                                Text(
-                                  '${item.total.toStringAsFixed(0)} ج',
-                                  style: const TextStyle(
-                                    fontFamily: 'Cairo',
-                                    fontWeight: FontWeight.bold,
-                                    color: AppTheme.warmBrown,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    _QtyButton(
-                                      icon: Icons.remove,
-                                      onTap: () => cart.decrementItem(item.id),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                                      child: Text(
-                                        '${item.quantity}',
-                                        style: const TextStyle(
-                                          fontFamily: 'Cairo',
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                    ),
-                                    _QtyButton(
-                                      icon: Icons.add,
-                                      onTap: () => cart.incrementItem(item.id),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      )),
-
-                      const SizedBox(height: 8),
-
-                      // Discount code
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppTheme.cardBg,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppTheme.border.withOpacity(0.5)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Row(
-                              children: [
-                                Icon(Icons.local_offer, color: AppTheme.caramel, size: 20),
-                                SizedBox(width: 6),
-                                Text(
-                                  'كود الخصم',
-                                  style: TextStyle(
-                                    fontFamily: 'Cairo',
-                                    fontWeight: FontWeight.bold,
-                                    color: AppTheme.darkBrown,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            if (cart.appliedDiscount != null)
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: Colors.green.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: Colors.green.withOpacity(0.3)),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.check_circle, color: Colors.green, size: 18),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        'خصم ${cart.appliedDiscount!.percentage.toStringAsFixed(0)}% مطبّق ✅',
-                                        style: const TextStyle(
-                                          fontFamily: 'Cairo',
-                                          color: Colors.green,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.close, size: 18, color: Colors.red),
-                                      onPressed: () {
-                                        cart.removeDiscount();
-                                        setState(() {
-                                          _discountSuccess = null;
-                                          _discountController.clear();
-                                        });
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              )
-                            else
+                              // Qty controls
                               Row(
                                 children: [
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _discountController,
-                                      decoration: InputDecoration(
-                                        hintText: 'أدخل كود الخصم',
-                                        errorText: _discountError,
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                      ),
-                                      style: const TextStyle(fontFamily: 'Cairo'),
-                                      textCapitalization: TextCapitalization.characters,
-                                    ),
+                                  _QtyBtn(
+                                      icon: '−',
+                                      onTap: () => context
+                                          .read<AppProvider>()
+                                          .removeFromCart(item.id)),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12),
+                                    child: Text('${provider.cartQty(item.id)}',
+                                        style: GoogleFonts.lato(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w700)),
                                   ),
-                                  const SizedBox(width: 10),
-                                  ElevatedButton(
-                                    onPressed: () => _applyDiscount(context),
-                                    child: const Text('تطبيق'),
-                                  ),
+                                  _QtyBtn(
+                                      icon: '+',
+                                      onTap: () => context
+                                          .read<AppProvider>()
+                                          .addToCart(item.id)),
                                 ],
                               ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // Summary
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppTheme.cardBg,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppTheme.border.withOpacity(0.5)),
-                        ),
-                        child: Column(
-                          children: [
-                            _SummaryRow('المجموع', '${cart.subtotal.toStringAsFixed(0)} جنيه'),
-                            if (cart.discountAmount > 0)
-                              _SummaryRow(
-                                'خصم (${cart.appliedDiscount!.percentage.toStringAsFixed(0)}%)',
-                                '-${cart.discountAmount.toStringAsFixed(0)} جنيه',
-                                valueColor: Colors.green,
+                              const SizedBox(width: 16),
+                              SizedBox(
+                                width: 90,
+                                child: Text(
+                                    '${(item.price * provider.cartQty(item.id)).toInt()} EGP',
+                                    textAlign: TextAlign.right,
+                                    style: GoogleFonts.lato(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF6B2D0E))),
                               ),
-                            const Divider(height: 20),
-                            _SummaryRow(
-                              'الإجمالي (بدون توصيل)',
-                              '${(cart.subtotal - cart.discountAmount).toStringAsFixed(0)} جنيه',
-                              isBold: true,
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    );
+                  }).toList(),
                 ),
-
-                // Checkout button
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
+              ),
+              const SizedBox(height: 16),
+              // Voucher
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
                     color: Colors.white,
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppTheme.warmBrown.withOpacity(0.1),
-                        blurRadius: 12,
-                        offset: const Offset(0, -4),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE8D5C0))),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('VOUCHER CODE',
+                        style: GoogleFonts.lato(
+                            fontSize: 12,
+                            color: Color(0xFF8B5E3C),
+                            letterSpacing: 1)),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _voucherCtrl,
+                            decoration: InputDecoration(
+                              hintText: 'Enter code...',
+                              hintStyle:
+                                  GoogleFonts.lato(color: Color(0xFFB0957A)),
+                              border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(4),
+                                  borderSide: const BorderSide(
+                                      color: Color(0xFFD4A882))),
+                              enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(4),
+                                  borderSide: const BorderSide(
+                                      color: Color(0xFFD4A882))),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 12),
+                            ),
+                            style: GoogleFonts.lato(),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        OutlinedButton(
+                          onPressed: () {
+                            final err = context
+                                .read<AppProvider>()
+                                .applyVoucher(_voucherCtrl.text);
+                            setState(() => _voucherError = err);
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF6B2D0E),
+                            side: const BorderSide(
+                                color: Color(0xFF6B2D0E), width: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 24, vertical: 14),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(4)),
+                          ),
+                          child: Text('APPLY',
+                              style: GoogleFonts.lato(
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1,
+                                  fontSize: 13)),
+                        ),
+                      ],
+                    ),
+                    if (_voucherError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(_voucherError!,
+                            style: GoogleFonts.lato(
+                                color: Color(0xFFC0392B), fontSize: 13)),
                       ),
-                    ],
-                  ),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const CheckoutScreen()),
+                    if (provider.appliedVoucher != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                            '✓ ${provider.appliedVoucher!.code} — ${provider.appliedVoucher!.label}',
+                            style: GoogleFonts.lato(
+                                color: Color(0xFF2C7A4B), fontSize: 13)),
                       ),
-                      icon: const Icon(Icons.arrow_back_ios, size: 16),
-                      label: const Text('متابعة الطلب', style: TextStyle(fontSize: 18, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Summary
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE8D5C0))),
+                child: Column(
+                  children: [
+                    _SummaryRow(
+                        'Subtotal', '${provider.cartSubtotal.toInt()} EGP'),
+                    if (provider.discountAmount > 0)
+                      _SummaryRow(
+                          'Discount', '−${provider.discountAmount.toInt()} EGP',
+                          isGreen: true),
+                    _SummaryRow('Delivery', 'FREE (first order)',
+                        isGreen: true),
+                    const Divider(color: Color(0xFFE8D5C0), height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Total',
+                            style: GoogleFonts.playfairDisplay(
+                                fontSize: 20, color: Color(0xFF2C1810))),
+                        Text('${provider.cartTotal.toInt()} EGP',
+                            style: GoogleFonts.playfairDisplay(
+                                fontSize: 24,
+                                color: Color(0xFF6B2D0E),
+                                fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: widget.onCheckout,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6B2D0E),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(4)),
+                        ),
+                        child: Text('PROCEED TO CHECKOUT →',
+                            style: GoogleFonts.lato(
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1,
+                                fontSize: 14)),
                       ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
 
-class _QtyButton extends StatelessWidget {
-  final IconData icon;
+class _QtyBtn extends StatelessWidget {
+  final String icon;
   final VoidCallback onTap;
-  const _QtyButton({required this.icon, required this.onTap});
-
+  const _QtyBtn({required this.icon, required this.onTap});
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(4),
       child: Container(
-        width: 28,
-        height: 28,
+        width: 32,
+        height: 32,
         decoration: BoxDecoration(
-          border: Border.all(color: AppTheme.border),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Icon(icon, size: 16, color: AppTheme.warmBrown),
+            color: const Color(0xFFF5E6D8),
+            borderRadius: BorderRadius.circular(4)),
+        child: Center(
+            child: Text(icon,
+                style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF6B2D0E)))),
       ),
     );
   }
 }
 
 class _SummaryRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final bool isBold;
-  final Color? valueColor;
-  const _SummaryRow(this.label, this.value, {this.isBold = false, this.valueColor});
-
+  final String label, value;
+  final bool isGreen;
+  const _SummaryRow(this.label, this.value, {this.isGreen = false});
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(fontFamily: 'Cairo', fontWeight: isBold ? FontWeight.bold : FontWeight.normal, fontSize: isBold ? 16 : 14)),
-          Text(value, style: TextStyle(fontFamily: 'Cairo', fontWeight: isBold ? FontWeight.bold : FontWeight.w600, color: valueColor ?? AppTheme.warmBrown, fontSize: isBold ? 16 : 14)),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmptyCart extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Text('🧺', style: TextStyle(fontSize: 72)),
-          const SizedBox(height: 16),
-          const Text(
-            'السلة فارغة',
-            style: TextStyle(fontFamily: 'Cairo', fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.darkBrown),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'أضف منتجات لتبدأ الطلب',
-            style: TextStyle(fontFamily: 'Cairo', color: AppTheme.textMid, fontSize: 15),
-          ),
-          const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.storefront),
-            label: const Text('تسوق الآن'),
-          ),
+          Text(label,
+              style: GoogleFonts.lato(
+                  color: isGreen ? Color(0xFF2C7A4B) : Color(0xFF8B5E3C),
+                  fontSize: 14)),
+          Text(value,
+              style: GoogleFonts.lato(
+                  fontWeight: FontWeight.w700,
+                  color: isGreen ? Color(0xFF2C7A4B) : Color(0xFF2C1810),
+                  fontSize: 14)),
         ],
       ),
     );
